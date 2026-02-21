@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import processVideoRouter from './routes/processVideo.js';
 
 const app = express();
-const PORT = Number(process.env.BACKEND_PORT || 4000);
+const PORT = Number(process.env.PORT || process.env.BACKEND_PORT || 4000);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
