@@ -1,4 +1,7 @@
 import { spawn } from 'child_process';
+import fs from 'fs/promises';
+import os from 'os';
+import path from 'path';
 
 function runCommand(command, args, errorCode) {
   return new Promise((resolve, reject) => {
@@ -24,8 +27,16 @@ function runCommand(command, args, errorCode) {
 }
 
 export async function downloadYoutubeVideo({ youtubeUrl, outputPath }) {
-  const cookiesFilePath = process.env.YTDLP_COOKIES_FILE?.trim();
+  let cookiesFilePath = process.env.YTDLP_COOKIES_FILE?.trim();
+  const cookiesContent = process.env.YTDLP_COOKIES?.trim();
   const jsRuntimePath = process.execPath;
+  let tempCookiesPath = null;
+
+  if (!cookiesFilePath && cookiesContent) {
+    tempCookiesPath = path.join(os.tmpdir(), `tikyok-ytdlp-cookies-${Date.now()}.txt`);
+    await fs.writeFile(tempCookiesPath, cookiesContent, 'utf-8');
+    cookiesFilePath = tempCookiesPath;
+  }
 
   const args = [
     '--no-playlist',
@@ -61,5 +72,9 @@ export async function downloadYoutubeVideo({ youtubeUrl, outputPath }) {
     }
 
     throw error;
+  } finally {
+    if (tempCookiesPath) {
+      await fs.rm(tempCookiesPath, { force: true });
+    }
   }
 }

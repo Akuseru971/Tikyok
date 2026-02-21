@@ -46,6 +46,7 @@ ELEVENLABS_API_KEY=
 ELEVENLABS_VOICE_ID=
 BACKEND_PORT=4000
 YTDLP_COOKIES_FILE=
+YTDLP_COOKIES=
 BACKEND_URL=
 NEXT_PUBLIC_API_BASE_URL=http://localhost:4000
 ```
@@ -150,7 +151,7 @@ Recommended: deploy as **2 services** from same repo.
 	 - Root directory: `backend`
 	 - Build command: `npm install`
 	 - Start command: `npm run start`
-	 - Add env vars: `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `BACKEND_PORT=4000`, `YTDLP_COOKIES_FILE` (optional, recommended for YouTube bot checks)
+	 - Add env vars: `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `BACKEND_PORT=4000`, and optionally `YTDLP_COOKIES_FILE` or `YTDLP_COOKIES` (recommended for YouTube bot checks)
 2. **Frontend service**
 	 - Root directory: `frontend`
 	 - Build command: `npm install && npm run build`
@@ -175,7 +176,7 @@ Structured errors are returned for:
 - `yt-dlp: command not found`
 	- Install with `pip3 install --break-system-packages yt-dlp`
 - `Sign in to confirm you're not a bot`
-	- Set backend env `YTDLP_COOKIES_FILE` to a valid Netscape-format cookies file exported from a logged-in browser
+	- Set backend env `YTDLP_COOKIES_FILE` (path) or `YTDLP_COOKIES` (raw Netscape cookies content) from a logged-in browser export
 	- If needed, use uploaded `videoFile` input instead of YouTube URL
 - `FFmpeg failed`
 	- Verify `ffmpeg -version`, ensure disk space in `/tmp`
