@@ -45,8 +45,11 @@ OPENAI_API_KEY=
 ELEVENLABS_API_KEY=
 ELEVENLABS_VOICE_ID=
 BACKEND_PORT=4000
+BACKEND_URL=
 NEXT_PUBLIC_API_BASE_URL=http://localhost:4000
 ```
+
+`BACKEND_URL` is used by Next.js rewrites (frontend server-side proxy). Set it on frontend deploys when backend runs on a different host.
 
 ## Local Setup
 
