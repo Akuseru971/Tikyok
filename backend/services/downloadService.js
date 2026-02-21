@@ -24,16 +24,42 @@ function runCommand(command, args, errorCode) {
 }
 
 export async function downloadYoutubeVideo({ youtubeUrl, outputPath }) {
+  const cookiesFilePath = process.env.YTDLP_COOKIES_FILE?.trim();
+  const jsRuntimePath = process.execPath;
+
   const args = [
     '--no-playlist',
+    '--js-runtimes',
+    `node:${jsRuntimePath}`,
+    '--extractor-args',
+    'youtube:player_client=android,web',
     '-f',
     'bestvideo+bestaudio/best',
     '--merge-output-format',
     'mp4',
     '-o',
-    outputPath,
-    youtubeUrl
+    outputPath
   ];
 
-  await runCommand('yt-dlp', args, 'YTDLP_FAILED');
+  if (cookiesFilePath) {
+    args.push('--cookies', cookiesFilePath);
+  }
+
+  args.push(youtubeUrl);
+
+  try {
+    await runCommand('yt-dlp', args, 'YTDLP_FAILED');
+  } catch (error) {
+    const message = String(error?.message || 'Unknown yt-dlp error');
+    const needsCookies = /sign in to confirm you[’']?re not a bot/i.test(message);
+
+    if (needsCookies && !cookiesFilePath) {
+      throw Object.assign(
+        new Error('yt-dlp blocked by YouTube bot check. Set YTDLP_COOKIES_FILE on backend or upload a local video file instead of YouTube URL.'),
+        { code: 'YTDLP_COOKIES_REQUIRED' }
+      );
+    }
+
+    throw error;
+  }
 }
