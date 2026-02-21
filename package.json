@@ -1,0 +1,13 @@
+{
+  "name": "tikyok-private-tool",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "concurrently \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\"",
+    "build": "npm --prefix frontend run build",
+    "start": "concurrently \"npm --prefix backend run start\" \"npm --prefix frontend run start\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}
