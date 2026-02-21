@@ -34,42 +34,155 @@ const schema = {
   }
 };
 
+const SEGMENTATION_MODEL = process.env.SEGMENTATION_MODEL || 'gpt-4o-mini';
+const MAX_CHUNK_CHARS = Number(process.env.SEGMENTATION_MAX_CHARS || 12000);
+const MAX_SEGMENT_TEXT_CHARS = Number(process.env.SEGMENTATION_MAX_SEGMENT_TEXT_CHARS || 220);
+
+function normalizeText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function buildSourceSegments(transcript) {
+  const rawSegments = Array.isArray(transcript?.segments) ? transcript.segments : [];
+
+  return rawSegments
+    .map((segment) => ({
+      start_time: Number(segment?.start),
+      end_time: Number(segment?.end),
+      text: normalizeText(segment?.text)
+    }))
+    .filter((segment) => Number.isFinite(segment.start_time) && Number.isFinite(segment.end_time) && segment.text)
+    .map((segment) => ({
+      ...segment,
+      text: segment.text.length > MAX_SEGMENT_TEXT_CHARS ? `${segment.text.slice(0, MAX_SEGMENT_TEXT_CHARS)}…` : segment.text
+    }));
+}
+
+function chunkSegments(segments) {
+  const chunks = [];
+  let current = [];
+  let currentSize = 0;
+
+  for (const segment of segments) {
+    const line = `[${segment.start_time.toFixed(2)}-${segment.end_time.toFixed(2)}] ${segment.text}`;
+    const lineSize = line.length + 1;
+
+    if (current.length && currentSize + lineSize > MAX_CHUNK_CHARS) {
+      chunks.push(current);
+      current = [];
+      currentSize = 0;
+    }
+
+    current.push(segment);
+    currentSize += lineSize;
+  }
+
+  if (current.length) {
+    chunks.push(current);
+  }
+
+  return chunks;
+}
+
+function parseTheoriesFromContent(content) {
+  const parsed = JSON.parse(content || '{"theories":[]}');
+  const theories = Array.isArray(parsed.theories) ? parsed.theories : [];
+
+  return theories
+    .filter((item) => Number.isFinite(Number(item.start_time)) && Number.isFinite(Number(item.end_time)))
+    .map((item) => ({
+      title: String(item.title || 'Theory'),
+      start_time: Number(item.start_time),
+      end_time: Number(item.end_time),
+      description: String(item.description || '')
+    }))
+    .filter((item) => item.end_time > item.start_time);
+}
+
+function mergeTheories(theories) {
+  const ordered = [...theories].sort((a, b) => a.start_time - b.start_time);
+  const merged = [];
+
+  for (const theory of ordered) {
+    const previous = merged[merged.length - 1];
+    if (!previous) {
+      merged.push(theory);
+      continue;
+    }
+
+    const overlaps = theory.start_time <= previous.end_time + 1;
+    const sameTitle = theory.title.toLowerCase() === previous.title.toLowerCase();
+
+    if (overlaps && sameTitle) {
+      previous.end_time = Math.max(previous.end_time, theory.end_time);
+      previous.description = previous.description || theory.description;
+      continue;
+    }
+
+    if (overlaps) {
+      theory.start_time = Math.max(theory.start_time, previous.end_time + 0.01);
+    }
+
+    if (theory.end_time > theory.start_time) {
+      merged.push(theory);
+    }
+  }
+
+  return merged.map((item, index) => ({
+    theory_number: index + 1,
+    title: item.title || `Theory ${index + 1}`,
+    start_time: Number(item.start_time),
+    end_time: Number(item.end_time),
+    description: item.description || ''
+  }));
+}
+
+async function detectChunkTheories({ openai, chunk }) {
+  const chunkStart = chunk[0]?.start_time ?? 0;
+  const chunkEnd = chunk[chunk.length - 1]?.end_time ?? chunkStart;
+  const chunkTranscript = chunk.map((segment) => `[${segment.start_time.toFixed(2)}-${segment.end_time.toFixed(2)}] ${segment.text}`).join('\n');
+
+  const completion = await openai.chat.completions.create({
+    model: SEGMENTATION_MODEL,
+    response_format: {
+      type: 'json_schema',
+      json_schema: schema
+    },
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You analyze transcript chunks and detect major distinct theories/topics only. Avoid micro-segmentation and return strict JSON only.'
+      },
+      {
+        role: 'user',
+        content: `Chunk window: ${chunkStart.toFixed(2)}s to ${chunkEnd.toFixed(2)}s\n\nTranscript lines:\n${chunkTranscript}\n\nReturn only JSON.`
+      }
+    ]
+  });
+
+  const content = completion.choices?.[0]?.message?.content || '{"theories":[]}';
+  return parseTheoriesFromContent(content);
+}
+
 export async function detectTheories({ transcript }) {
   try {
     const openai = getOpenAIClient();
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      response_format: {
-        type: 'json_schema',
-        json_schema: schema
-      },
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You analyze transcripts and detect all major distinct theories/topics. Use semantic boundaries, detect topic shifts naturally, avoid micro-segmentation, include only major distinct theories, and return strict JSON.'
-        },
-        {
-          role: 'user',
-          content: `Analyze this transcript and return only JSON:\n\n${JSON.stringify(transcript)}`
-        }
-      ]
-    });
+    const sourceSegments = buildSourceSegments(transcript);
 
-    const content = completion.choices?.[0]?.message?.content || '{"theories":[]}';
-    const parsed = JSON.parse(content);
-    const theories = Array.isArray(parsed.theories) ? parsed.theories : [];
+    if (!sourceSegments.length) {
+      return [];
+    }
 
-    return theories
-      .filter((item) => Number.isFinite(Number(item.start_time)) && Number.isFinite(Number(item.end_time)))
-      .map((item, index) => ({
-        theory_number: Number(item.theory_number || index + 1),
-        title: String(item.title || `Theory ${index + 1}`),
-        start_time: Number(item.start_time),
-        end_time: Number(item.end_time),
-        description: String(item.description || '')
-      }))
-      .sort((a, b) => a.start_time - b.start_time);
+    const chunks = chunkSegments(sourceSegments);
+    const collected = [];
+
+    for (const chunk of chunks) {
+      const chunkTheories = await detectChunkTheories({ openai, chunk });
+      collected.push(...chunkTheories);
+    }
+
+    return mergeTheories(collected);
   } catch (error) {
     throw Object.assign(new Error(`Theory detection failed: ${error.message}`), { code: 'SEGMENTATION_FAILED' });
   }
