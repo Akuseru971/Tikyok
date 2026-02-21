@@ -23,7 +23,11 @@ type JobState = {
   error?: { code: string; message: string };
 };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+const configuredApiBase = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || '';
+const isConfiguredLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(configuredApiBase);
+const isBrowserRemoteHost =
+  typeof window !== 'undefined' && !['localhost', '127.0.0.1'].includes(window.location.hostname);
+const API_BASE = isConfiguredLocalhost && isBrowserRemoteHost ? '' : configuredApiBase;
 
 export default function Dashboard() {
   const [youtubeUrl, setYoutubeUrl] = useState('');
@@ -120,7 +124,7 @@ export default function Dashboard() {
 
           {job?.downloadUrl && job.status === 'completed' ? (
             <a
-              href={`${API_BASE}${job.downloadUrl}`}
+              href={API_BASE ? `${API_BASE}${job.downloadUrl}` : job.downloadUrl}
               className="mt-4 inline-flex rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-black"
               target="_blank"
               rel="noreferrer"
