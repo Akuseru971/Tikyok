@@ -36,11 +36,11 @@ async function proxyRequest(request: NextRequest, path: string[]) {
     }
 
     const response = await fetch(targetUrl, init);
-    const responseBody = await response.arrayBuffer();
+    const responseHeaders = new Headers(response.headers);
 
-    return new NextResponse(responseBody, {
+    return new NextResponse(response.body, {
       status: response.status,
-      headers: response.headers
+      headers: responseHeaders
     });
   } catch (error) {
     return NextResponse.json(
