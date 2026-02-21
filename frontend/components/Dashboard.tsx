@@ -30,7 +30,7 @@ const isBrowserRemoteHost =
 const API_BASE = isConfiguredLocalhost && isBrowserRemoteHost ? '' : configuredApiBase;
 
 export default function Dashboard() {
-  const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [videoFile, setVideoFile] = useState<File | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [job, setJob] = useState<JobState | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -57,7 +57,7 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [jobId]);
 
-  const canStart = useMemo(() => !!youtubeUrl.trim() && !submitting, [youtubeUrl, submitting]);
+  const canStart = useMemo(() => !!videoFile && !submitting, [videoFile, submitting]);
 
   async function startProcessing() {
     setSubmitting(true);
@@ -65,10 +65,18 @@ export default function Dashboard() {
     setJob(null);
 
     try {
+      if (!videoFile) {
+        setError('Please select an MP4 file');
+        setSubmitting(false);
+        return;
+      }
+
+      const payload = new FormData();
+      payload.append('videoFile', videoFile);
+
       const response = await fetch(`${API_BASE}/api/process-video`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ youtubeUrl })
+        body: payload
       });
       const data = await response.json();
 
@@ -89,15 +97,17 @@ export default function Dashboard() {
   return (
     <main className="mx-auto min-h-screen w-full max-w-5xl px-6 py-12">
       <section className="rounded-2xl border border-white/15 bg-panel p-6 shadow-2xl backdrop-blur-soft">
-        <h1 className="text-2xl font-semibold">Private YouTube Voiceover Studio</h1>
-        <p className="mt-2 text-sm text-muted">Paste a YouTube URL and generate a faithful ElevenLabs voice-replaced MP4.</p>
+        <h1 className="text-2xl font-semibold">Private MP4 Voiceover Studio</h1>
+        <p className="mt-2 text-sm text-muted">Upload an MP4 and generate a faithful ElevenLabs voice-replaced MP4.</p>
 
         <div className="mt-6 grid gap-3 md:grid-cols-[1fr_auto]">
           <input
-            type="url"
-            placeholder="https://youtube.com/..."
-            value={youtubeUrl}
-            onChange={(event) => setYoutubeUrl(event.target.value)}
+            type="file"
+            accept="video/mp4,.mp4"
+            onChange={(event) => {
+              const selectedFile = event.target.files?.[0] || null;
+              setVideoFile(selectedFile);
+            }}
             className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-text placeholder:text-muted"
           />
           <button

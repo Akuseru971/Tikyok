@@ -1,10 +1,10 @@
-# Tikyok — Private YouTube Theory Voiceover Tool
+# Tikyok — Private MP4 Theory Voiceover Tool
 
-Private web app (not SaaS) that takes a YouTube URL, downloads the video, transcribes it, detects major theories/topics, rewrites each segment faithfully, generates ElevenLabs voiceover, and renders a final MP4 for subtitle insertion (e.g., CapCut).
+Private web app (not SaaS) that takes an uploaded MP4, transcribes it, detects major theories/topics, rewrites each segment faithfully, generates ElevenLabs voiceover, and renders a final MP4 for subtitle insertion (e.g., CapCut).
 
 ## Stack
 
-- Backend: Node.js, Express.js, FFmpeg, yt-dlp, OpenAI (Whisper + GPT-4o), ElevenLabs, Multer, UUID
+- Backend: Node.js, Express.js, FFmpeg, OpenAI (Whisper + GPT-4o), ElevenLabs, Multer, UUID
 - Frontend: Next.js 14 (App Router), TypeScript, TailwindCSS
 - Deploy: Railway or Dockerized VPS (not Vercel)
 
@@ -45,8 +45,6 @@ OPENAI_API_KEY=
 ELEVENLABS_API_KEY=
 ELEVENLABS_VOICE_ID=
 BACKEND_PORT=4000
-YTDLP_COOKIES_FILE=
-YTDLP_COOKIES=
 BACKEND_URL=
 NEXT_PUBLIC_API_BASE_URL=http://localhost:4000
 ```
@@ -62,14 +60,12 @@ Ubuntu/Debian:
 ```bash
 sudo apt-get update
 sudo apt-get install -y ffmpeg python3 python3-pip
-pip3 install --break-system-packages yt-dlp
 ```
 
 Check:
 
 ```bash
 ffmpeg -version
-yt-dlp --version
 ```
 
 ### 2) Install app dependencies
@@ -95,13 +91,9 @@ npm run dev
 
 `POST /api/process-video`
 
-JSON body:
+Multipart form-data body:
 
-```json
-{
-	"youtubeUrl": "https://youtube.com/..."
-}
-```
+`videoFile=<your .mp4 file>`
 
 Response:
 
@@ -120,7 +112,7 @@ Returns job status, progress, detected theories, and `downloadUrl` when complete
 
 ## Processing Pipeline
 
-1. Download video with `yt-dlp` into `/tmp/tikyok-jobs/{jobId}/original.mp4`
+1. Save uploaded MP4 into `/tmp/tikyok-jobs/{jobId}/original.mp4`
 2. Extract mono WAV with FFmpeg
 3. Transcribe with Whisper (`whisper-1`) with segment and word timestamps
 4. Detect major distinct theories/topics using `gpt-4o`
@@ -151,7 +143,7 @@ Recommended: deploy as **2 services** from same repo.
 	 - Root directory: `backend`
 	 - Build command: `npm install`
 	 - Start command: `npm run start`
-	 - Add env vars: `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `BACKEND_PORT=4000`, and optionally `YTDLP_COOKIES_FILE` or `YTDLP_COOKIES` (recommended for YouTube bot checks)
+	 - Add env vars: `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `BACKEND_PORT=4000`
 2. **Frontend service**
 	 - Root directory: `frontend`
 	 - Build command: `npm install && npm run build`
@@ -164,7 +156,6 @@ If you prefer one container, use the provided Dockerfile on Railway with Docker 
 
 Structured errors are returned for:
 
-- Invalid YouTube URL (`INVALID_YOUTUBE_URL`)
 - yt-dlp failure (`YTDLP_FAILED`)
 - Transcription failure (`TRANSCRIPTION_FAILED`)
 - GPT segmentation/rewrite issues (`SEGMENTATION_FAILED`, `REWRITE_FAILED`)
@@ -173,11 +164,6 @@ Structured errors are returned for:
 
 ## Troubleshooting
 
-- `yt-dlp: command not found`
-	- Install with `pip3 install --break-system-packages yt-dlp`
-- `Sign in to confirm you're not a bot`
-	- Set backend env `YTDLP_COOKIES_FILE` (path) or `YTDLP_COOKIES` (raw Netscape cookies content) from a logged-in browser export
-	- If needed, use uploaded `videoFile` input instead of YouTube URL
 - `FFmpeg failed`
 	- Verify `ffmpeg -version`, ensure disk space in `/tmp`
 - `OpenAI 401/429`

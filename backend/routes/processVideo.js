@@ -4,7 +4,6 @@ import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { createJobDir, getJobPath, writeJson, copyFile } from '../utils/fileManager.js';
-import { downloadYoutubeVideo } from '../services/downloadService.js';
 import { extractAudio, buildTimelineAudio, replaceVideoAudio } from '../services/ffmpegService.js';
 import { transcribeAudio } from '../services/transcriptionService.js';
 import { detectTheories } from '../services/segmentationService.js';
@@ -37,7 +36,7 @@ function parseFloatSafe(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
-async function processJob({ jobs, jobId, youtubeUrl, uploadedFilePath }) {
+async function processJob({ jobs, jobId, uploadedFilePath }) {
   const jobDir = await createJobDir(jobId);
   const originalVideoPath = getJobPath(jobId, 'original.mp4');
   const audioPath = getJobPath(jobId, 'audio.wav');
@@ -49,15 +48,12 @@ async function processJob({ jobs, jobId, youtubeUrl, uploadedFilePath }) {
   const segmentsAudioDir = path.join(jobDir, 'segments_audio');
 
   try {
-    if (youtubeUrl) {
-      setJob(jobs, jobId, { status: 'downloading', progress: STEP_PROGRESS.downloading, message: 'Downloading YouTube video...' });
-      await downloadYoutubeVideo({ youtubeUrl, outputPath: originalVideoPath });
-    } else if (uploadedFilePath) {
+    if (uploadedFilePath) {
       setJob(jobs, jobId, { status: 'downloading', progress: STEP_PROGRESS.downloading, message: 'Using uploaded video fallback...' });
       await copyFile(uploadedFilePath, originalVideoPath);
       await fs.rm(uploadedFilePath, { force: true });
     } else {
-      throw new Error('No video source provided');
+      throw new Error('No MP4 file provided');
     }
 
     setJob(jobs, jobId, { status: 'transcribing', progress: STEP_PROGRESS.transcribing, message: 'Extracting and transcribing audio...' });
@@ -157,28 +153,27 @@ export default function processVideoRouter({ jobs }) {
   const router = express.Router();
 
   router.post('/process-video', upload.single('videoFile'), async (req, res) => {
-    const { youtubeUrl } = req.body;
     const uploadedFilePath = req.file?.path;
+    const mimeType = req.file?.mimetype || '';
+    const originalName = (req.file?.originalname || '').toLowerCase();
 
-    if (!youtubeUrl && !uploadedFilePath) {
+    if (!uploadedFilePath) {
       return res.status(400).json({
         error: {
-          code: 'MISSING_INPUT',
-          message: 'Provide either youtubeUrl or videoFile'
+          code: 'MISSING_VIDEO_FILE',
+          message: 'Provide a videoFile (MP4)'
         }
       });
     }
 
-    if (youtubeUrl) {
-      const isYoutube = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//i.test(youtubeUrl.trim());
-      if (!isYoutube) {
-        return res.status(400).json({
-          error: {
-            code: 'INVALID_YOUTUBE_URL',
-            message: 'Invalid YouTube URL format'
-          }
-        });
-      }
+    const isMp4 = mimeType === 'video/mp4' || originalName.endsWith('.mp4');
+    if (!isMp4) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_VIDEO_FORMAT',
+          message: 'Only MP4 files are supported'
+        }
+      });
     }
 
     const jobId = uuidv4();
@@ -191,7 +186,7 @@ export default function processVideoRouter({ jobs }) {
       theories: []
     });
 
-    processJob({ jobs, jobId, youtubeUrl, uploadedFilePath }).catch((error) => {
+    processJob({ jobs, jobId, uploadedFilePath }).catch((error) => {
       console.error('[ProcessJobUnhandled]', error);
     });
 
