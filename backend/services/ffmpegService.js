@@ -101,6 +101,33 @@ export async function extractAudio({ inputVideoPath, outputAudioPath, targetMaxB
   );
 }
 
+export async function extractAudioSegment({ inputVideoPath, outputAudioPath, startTime, duration }) {
+  const safeStart = Math.max(Number(startTime) || 0, 0);
+  const safeDuration = Math.max(Number(duration) || 0.1, 0.1);
+
+  await runCommand(
+    'ffmpeg',
+    [
+      '-y',
+      '-ss',
+      safeStart.toFixed(3),
+      '-t',
+      safeDuration.toFixed(3),
+      '-i',
+      inputVideoPath,
+      '-ac',
+      '1',
+      '-ar',
+      '44100',
+      '-vn',
+      '-c:a',
+      'pcm_s16le',
+      outputAudioPath
+    ],
+    'FFMPEG_EXTRACT_SEGMENT_FAILED'
+  );
+}
+
 async function createSilence({ outputPath, duration }) {
   await runCommand(
     'ffmpeg',

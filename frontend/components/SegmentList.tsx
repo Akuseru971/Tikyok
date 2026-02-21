@@ -50,7 +50,7 @@ export default function SegmentList({ segments, onGenerateSegment, generatingThe
                   disabled={generatingTheoryNumbers.includes(segment.theory_number)}
                   className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {generatingTheoryNumbers.includes(segment.theory_number) ? 'Generating...' : 'Generate segment audio'}
+                  {generatingTheoryNumbers.includes(segment.theory_number) ? 'Processing...' : 'Run voice changer'}
                 </button>
 
                 {generatedSegmentUrls[segment.theory_number] ? (
@@ -60,7 +60,7 @@ export default function SegmentList({ segments, onGenerateSegment, generatingThe
                     rel="noreferrer"
                     className="rounded-md border border-white/20 px-3 py-1 text-xs"
                   >
-                    Download segment MP3
+                    Download voice-changed MP3
                   </a>
                 ) : null}
               </div>

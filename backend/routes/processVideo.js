@@ -4,11 +4,11 @@ import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { createJobDir, getJobPath, writeJson, copyFile } from '../utils/fileManager.js';
-import { extractAudio } from '../services/ffmpegService.js';
+import { extractAudio, extractAudioSegment } from '../services/ffmpegService.js';
 import { transcribeAudio } from '../services/transcriptionService.js';
 import { detectTheories } from '../services/segmentationService.js';
 import { rewriteTheorySegment } from '../services/rewriteService.js';
-import { generateVoiceoverSegment } from '../services/elevenService.js';
+import { generateVoiceChangedSegment } from '../services/elevenService.js';
 
 const upload = multer({ dest: '/tmp/tikyok-uploads' });
 
@@ -93,7 +93,7 @@ async function processJob({ jobs, jobId, uploadedFilePath }) {
     setJob(jobs, jobId, {
       status: 'ready',
       progress: STEP_PROGRESS.ready,
-      message: 'Theories are ready. Generate voice for any segment.',
+      message: 'Theories are ready. Run voice changer for any segment.',
       theories: rewrittenSegments,
       theoryCount: rewrittenSegments.length,
       generatedSegments: []
@@ -202,12 +202,14 @@ export default function processVideoRouter({ jobs }) {
       });
     }
 
-    const segmentText = String(targetTheory.rewritten_text || targetTheory.original_text || '').trim();
-    if (!segmentText) {
+    const segmentStart = parseFloatSafe(targetTheory.start_time);
+    const segmentEnd = parseFloatSafe(targetTheory.end_time);
+    const segmentDuration = Math.max(segmentEnd - segmentStart, 0.1);
+    if (segmentDuration <= 0) {
       return res.status(400).json({
         error: {
-          code: 'EMPTY_SEGMENT_TEXT',
-          message: 'No rewritten text found for this theory'
+          code: 'INVALID_SEGMENT_RANGE',
+          message: 'Invalid theory timing range'
         }
       });
     }
@@ -217,8 +219,18 @@ export default function processVideoRouter({ jobs }) {
       const segmentAudioDir = path.join(jobDir, 'segments_audio');
       await fs.mkdir(segmentAudioDir, { recursive: true });
 
-      const localOutputPath = path.join(segmentAudioDir, `segment_${theoryNumber}.mp3`);
-      await generateVoiceoverSegment({ text: segmentText, outputPath: localOutputPath });
+      const originalVideoPath = getJobPath(jobId, 'original.mp4');
+      const sourceSegmentPath = path.join(segmentAudioDir, `segment_${theoryNumber}_source.wav`);
+      const localOutputPath = path.join(segmentAudioDir, `segment_${theoryNumber}_voice_changed.mp3`);
+
+      await extractAudioSegment({
+        inputVideoPath: originalVideoPath,
+        outputAudioPath: sourceSegmentPath,
+        startTime: segmentStart,
+        duration: segmentDuration
+      });
+
+      await generateVoiceChangedSegment({ inputAudioPath: sourceSegmentPath, outputPath: localOutputPath });
 
       const downloadDir = path.join(process.cwd(), 'public', 'downloads');
       await fs.mkdir(downloadDir, { recursive: true });
@@ -241,7 +253,7 @@ export default function processVideoRouter({ jobs }) {
       setJob(jobs, jobId, {
         status: 'ready',
         progress: STEP_PROGRESS.ready,
-        message: `Generated audio for theory ${theoryNumber}`,
+        message: `Voice-changed segment generated for theory ${theoryNumber}`,
         generatedSegments: mergedGenerated
       });
 
