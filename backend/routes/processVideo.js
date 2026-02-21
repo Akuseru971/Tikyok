@@ -241,7 +241,7 @@ export default function processVideoRouter({ jobs }) {
       const generatedSegment = {
         theory_number: theoryNumber,
         title: targetTheory.title,
-        downloadUrl: `/downloads/${publicFilename}`
+        downloadUrl: `/api/download/${publicFilename}`
       };
 
       const previousGenerated = Array.isArray(job.generatedSegments) ? job.generatedSegments : [];
@@ -266,6 +266,32 @@ export default function processVideoRouter({ jobs }) {
         }
       });
     }
+  });
+
+  router.get('/download/:fileName', async (req, res) => {
+    const fileName = String(req.params.fileName || '');
+    if (!/^[a-zA-Z0-9._-]+$/.test(fileName)) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_FILE_NAME',
+          message: 'Invalid file name'
+        }
+      });
+    }
+
+    const filePath = path.join(process.cwd(), 'public', 'downloads', fileName);
+    try {
+      await fs.stat(filePath);
+    } catch {
+      return res.status(404).json({
+        error: {
+          code: 'DOWNLOAD_NOT_FOUND',
+          message: 'Download file not found'
+        }
+      });
+    }
+
+    return res.download(filePath);
   });
 
   return router;
