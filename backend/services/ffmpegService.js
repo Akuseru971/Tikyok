@@ -2,6 +2,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import { spawn } from 'child_process';
 
+const DEFAULT_TRANSCRIPTION_MAX_BYTES = 24 * 1024 * 1024;
+
 function runCommand(command, args, errorCode) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -25,8 +27,78 @@ function runCommand(command, args, errorCode) {
   });
 }
 
-export async function extractAudio({ inputVideoPath, outputAudioPath }) {
-  await runCommand('ffmpeg', ['-y', '-i', inputVideoPath, '-ac', '1', '-ar', '44100', '-vn', outputAudioPath], 'FFMPEG_EXTRACT_FAILED');
+function runCommandWithStdout(command, args, errorCode) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on('error', (err) => {
+      reject(Object.assign(new Error(err.message), { code: errorCode }));
+    });
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve(stdout.trim());
+        return;
+      }
+      reject(Object.assign(new Error(`Command failed (${code}): ${stderr || 'Unknown error'}`), { code: errorCode }));
+    });
+  });
+}
+
+async function getMediaDurationSeconds(filePath) {
+  const output = await runCommandWithStdout(
+    'ffprobe',
+    ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nokey=1:noprint_wrappers=1', filePath],
+    'FFPROBE_DURATION_FAILED'
+  );
+
+  const duration = Number(output);
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw Object.assign(new Error('Unable to read media duration'), { code: 'FFPROBE_DURATION_INVALID' });
+  }
+  return duration;
+}
+
+export async function extractAudio({ inputVideoPath, outputAudioPath, targetMaxBytes = DEFAULT_TRANSCRIPTION_MAX_BYTES }) {
+  let bitrateKbps = 32;
+
+  try {
+    const durationSeconds = await getMediaDurationSeconds(inputVideoPath);
+    const targetBitsPerSecond = Math.floor((targetMaxBytes * 8) / durationSeconds);
+    bitrateKbps = Math.max(12, Math.min(64, Math.floor(targetBitsPerSecond / 1000)));
+  } catch {
+    bitrateKbps = 32;
+  }
+
+  await runCommand(
+    'ffmpeg',
+    [
+      '-y',
+      '-i',
+      inputVideoPath,
+      '-ac',
+      '1',
+      '-ar',
+      '16000',
+      '-vn',
+      '-c:a',
+      'libmp3lame',
+      '-b:a',
+      `${bitrateKbps}k`,
+      outputAudioPath
+    ],
+    'FFMPEG_EXTRACT_FAILED'
+  );
 }
 
 async function createSilence({ outputPath, duration }) {

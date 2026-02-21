@@ -1,5 +1,8 @@
 import fs from 'fs';
+import fsPromises from 'fs/promises';
 import OpenAI from 'openai';
+
+const OPENAI_TRANSCRIPTION_MAX_BYTES = 25 * 1024 * 1024;
 
 function getOpenAIClient() {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -11,6 +14,14 @@ function getOpenAIClient() {
 
 export async function transcribeAudio({ audioPath }) {
   try {
+    const audioStats = await fsPromises.stat(audioPath);
+    if (audioStats.size > OPENAI_TRANSCRIPTION_MAX_BYTES) {
+      throw Object.assign(
+        new Error(`Audio file too large for transcription (${audioStats.size} bytes > ${OPENAI_TRANSCRIPTION_MAX_BYTES} bytes)`),
+        { code: 'TRANSCRIPTION_FILE_TOO_LARGE' }
+      );
+    }
+
     const openai = getOpenAIClient();
     const transcription = await openai.audio.transcriptions.create({
       file: fs.createReadStream(audioPath),
@@ -33,6 +44,9 @@ export async function transcribeAudio({ audioPath }) {
       }))
     };
   } catch (error) {
+    if (error?.code === 'TRANSCRIPTION_FILE_TOO_LARGE') {
+      throw error;
+    }
     throw Object.assign(new Error(`Transcription failed: ${error.message}`), { code: 'TRANSCRIPTION_FAILED' });
   }
 }

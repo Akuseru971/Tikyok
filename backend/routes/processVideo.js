@@ -39,7 +39,7 @@ function parseFloatSafe(value, fallback = 0) {
 async function processJob({ jobs, jobId, uploadedFilePath }) {
   const jobDir = await createJobDir(jobId);
   const originalVideoPath = getJobPath(jobId, 'original.mp4');
-  const audioPath = getJobPath(jobId, 'audio.wav');
+  const audioPath = getJobPath(jobId, 'audio.mp3');
   const transcriptPath = getJobPath(jobId, 'transcript.json');
   const theoriesPath = getJobPath(jobId, 'theories.json');
   const rewrittenPath = getJobPath(jobId, 'rewritten_segments.json');
