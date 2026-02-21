@@ -3,9 +3,7 @@ type StepKey =
   | 'transcribing'
   | 'detecting'
   | 'rewriting'
-  | 'generating_voice'
-  | 'rendering'
-  | 'completed';
+  | 'ready';
 
 type ProgressBarProps = {
   progress: number;
@@ -17,11 +15,10 @@ const steps: { key: StepKey; label: string }[] = [
   { key: 'transcribing', label: 'Transcribing' },
   { key: 'detecting', label: 'Detecting theories' },
   { key: 'rewriting', label: 'Rewriting' },
-  { key: 'generating_voice', label: 'Generating voice' },
-  { key: 'rendering', label: 'Rendering video' }
+  { key: 'ready', label: 'Ready to generate' }
 ];
 
-const statusOrder: StepKey[] = ['downloading', 'transcribing', 'detecting', 'rewriting', 'generating_voice', 'rendering', 'completed'];
+const statusOrder: StepKey[] = ['downloading', 'transcribing', 'detecting', 'rewriting', 'ready'];
 
 export default function ProgressBar({ progress, status }: ProgressBarProps) {
   const currentIndex = Math.max(statusOrder.indexOf(status as StepKey), 0);

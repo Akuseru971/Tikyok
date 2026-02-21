@@ -4,7 +4,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { createJobDir, getJobPath, writeJson, copyFile } from '../utils/fileManager.js';
-import { extractAudio, buildTimelineAudio, replaceVideoAudio } from '../services/ffmpegService.js';
+import { extractAudio } from '../services/ffmpegService.js';
 import { transcribeAudio } from '../services/transcriptionService.js';
 import { detectTheories } from '../services/segmentationService.js';
 import { rewriteTheorySegment } from '../services/rewriteService.js';
@@ -17,9 +17,7 @@ const STEP_PROGRESS = {
   transcribing: 30,
   detecting: 45,
   rewriting: 60,
-  generating_voice: 80,
-  rendering: 95,
-  completed: 100
+  ready: 100
 };
 
 function setJob(jobs, jobId, patch) {
@@ -43,9 +41,6 @@ async function processJob({ jobs, jobId, uploadedFilePath }) {
   const transcriptPath = getJobPath(jobId, 'transcript.json');
   const theoriesPath = getJobPath(jobId, 'theories.json');
   const rewrittenPath = getJobPath(jobId, 'rewritten_segments.json');
-  const finalAudioPath = getJobPath(jobId, 'final_audio.wav');
-  const finalVideoPath = getJobPath(jobId, 'final_output.mp4');
-  const segmentsAudioDir = path.join(jobDir, 'segments_audio');
 
   try {
     if (uploadedFilePath) {
@@ -95,45 +90,13 @@ async function processJob({ jobs, jobId, uploadedFilePath }) {
 
     await writeJson(rewrittenPath, rewrittenSegments);
 
-    setJob(jobs, jobId, { status: 'generating_voice', progress: STEP_PROGRESS.generating_voice, message: 'Generating ElevenLabs voiceovers...' });
-    await fs.mkdir(segmentsAudioDir, { recursive: true });
-
-    const generatedAudioSegments = [];
-    for (let index = 0; index < rewrittenSegments.length; index += 1) {
-      const segment = rewrittenSegments[index];
-      const outputFile = path.join(segmentsAudioDir, `segment_${index + 1}.mp3`);
-      await generateVoiceoverSegment({ text: segment.rewritten_text, outputPath: outputFile });
-      generatedAudioSegments.push({
-        start_time: parseFloatSafe(segment.start_time),
-        end_time: parseFloatSafe(segment.end_time),
-        filePath: outputFile,
-        title: segment.title
-      });
-
-      const voiceProgress = STEP_PROGRESS.generating_voice + Math.floor(((index + 1) / Math.max(rewrittenSegments.length, 1)) * 10);
-      setJob(jobs, jobId, {
-        status: 'generating_voice',
-        progress: Math.min(voiceProgress, 90),
-        message: `Generated voice segment ${index + 1}/${rewrittenSegments.length}`
-      });
-    }
-
-    setJob(jobs, jobId, { status: 'rendering', progress: STEP_PROGRESS.rendering, message: 'Rendering final audio and video...' });
-    await buildTimelineAudio({ segments: generatedAudioSegments, outputAudioPath: finalAudioPath, jobDir });
-    await replaceVideoAudio({ inputVideoPath: originalVideoPath, inputAudioPath: finalAudioPath, outputVideoPath: finalVideoPath });
-
-    const downloadDir = path.join(process.cwd(), 'public', 'downloads');
-    await fs.mkdir(downloadDir, { recursive: true });
-    const finalPublicPath = path.join(downloadDir, `${jobId}.mp4`);
-    await fs.copyFile(finalVideoPath, finalPublicPath);
-
     setJob(jobs, jobId, {
-      status: 'completed',
-      progress: STEP_PROGRESS.completed,
-      message: 'Final MP4 ready for subtitle insertion',
-      downloadUrl: `/downloads/${jobId}.mp4`,
+      status: 'ready',
+      progress: STEP_PROGRESS.ready,
+      message: 'Theories are ready. Generate voice for any segment.',
       theories: rewrittenSegments,
-      theoryCount: rewrittenSegments.length
+      theoryCount: rewrittenSegments.length,
+      generatedSegments: []
     });
   } catch (error) {
     console.error(`[Job ${jobId}]`, error);
@@ -204,6 +167,93 @@ export default function processVideoRouter({ jobs }) {
       });
     }
     return res.json(job);
+  });
+
+  router.post('/job/:jobId/generate-segment', express.json({ limit: '1mb' }), async (req, res) => {
+    const jobId = req.params.jobId;
+    const job = jobs.get(jobId);
+
+    if (!job) {
+      return res.status(404).json({
+        error: {
+          code: 'JOB_NOT_FOUND',
+          message: 'Job ID not found'
+        }
+      });
+    }
+
+    const theoryNumber = Number(req.body?.theoryNumber);
+    if (!Number.isInteger(theoryNumber) || theoryNumber < 1) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_THEORY_NUMBER',
+          message: 'Provide a valid theoryNumber'
+        }
+      });
+    }
+
+    const targetTheory = (job.theories || []).find((theory) => Number(theory.theory_number) === theoryNumber);
+    if (!targetTheory) {
+      return res.status(404).json({
+        error: {
+          code: 'THEORY_NOT_FOUND',
+          message: 'Theory not found for this job'
+        }
+      });
+    }
+
+    const segmentText = String(targetTheory.rewritten_text || targetTheory.original_text || '').trim();
+    if (!segmentText) {
+      return res.status(400).json({
+        error: {
+          code: 'EMPTY_SEGMENT_TEXT',
+          message: 'No rewritten text found for this theory'
+        }
+      });
+    }
+
+    try {
+      const jobDir = await createJobDir(jobId);
+      const segmentAudioDir = path.join(jobDir, 'segments_audio');
+      await fs.mkdir(segmentAudioDir, { recursive: true });
+
+      const localOutputPath = path.join(segmentAudioDir, `segment_${theoryNumber}.mp3`);
+      await generateVoiceoverSegment({ text: segmentText, outputPath: localOutputPath });
+
+      const downloadDir = path.join(process.cwd(), 'public', 'downloads');
+      await fs.mkdir(downloadDir, { recursive: true });
+      const publicFilename = `${jobId}_segment_${theoryNumber}.mp3`;
+      const publicOutputPath = path.join(downloadDir, publicFilename);
+      await fs.copyFile(localOutputPath, publicOutputPath);
+
+      const generatedSegment = {
+        theory_number: theoryNumber,
+        title: targetTheory.title,
+        downloadUrl: `/downloads/${publicFilename}`
+      };
+
+      const previousGenerated = Array.isArray(job.generatedSegments) ? job.generatedSegments : [];
+      const mergedGenerated = [
+        ...previousGenerated.filter((item) => Number(item.theory_number) !== theoryNumber),
+        generatedSegment
+      ].sort((a, b) => Number(a.theory_number) - Number(b.theory_number));
+
+      setJob(jobs, jobId, {
+        status: 'ready',
+        progress: STEP_PROGRESS.ready,
+        message: `Generated audio for theory ${theoryNumber}`,
+        generatedSegments: mergedGenerated
+      });
+
+      return res.json({ ok: true, segment: generatedSegment, job: jobs.get(jobId) });
+    } catch (error) {
+      return res.status(500).json({
+        error: {
+          code: error.code || 'SEGMENT_GENERATION_FAILED',
+          message: error.message || 'Segment voice generation failed'
+        }
+      });
+    }
   });
 
   return router;

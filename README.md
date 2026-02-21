@@ -1,6 +1,6 @@
 # Tikyok — Private MP4 Theory Voiceover Tool
 
-Private web app (not SaaS) that takes an uploaded MP4, transcribes it, detects major theories/topics, rewrites each segment faithfully, generates ElevenLabs voiceover, and renders a final MP4 for subtitle insertion (e.g., CapCut).
+Private web app (not SaaS) that takes an uploaded MP4, transcribes it, detects major theories/topics, rewrites each segment faithfully, then generates ElevenLabs voiceover per selected theory segment on demand.
 
 ## Stack
 
@@ -108,7 +108,19 @@ Response:
 
 `GET /api/job/:jobId`
 
-Returns job status, progress, detected theories, and `downloadUrl` when complete.
+Returns job status, progress, detected theories, and generated segment download URLs.
+
+### Generate one segment audio
+
+`POST /api/job/:jobId/generate-segment`
+
+JSON body:
+
+```json
+{
+	"theoryNumber": 1
+}
+```
 
 ## Processing Pipeline
 
@@ -117,9 +129,7 @@ Returns job status, progress, detected theories, and `downloadUrl` when complete
 3. Transcribe with Whisper (`whisper-1`) with segment and word timestamps
 4. Detect major distinct theories/topics using `gpt-4o`
 5. Rewrite each theory segment with ~95% fidelity (length preserved ±5%)
-6. Generate segment-level ElevenLabs voiceovers (`eleven_english_v2`)
-7. Rebuild timeline audio to match segment timing
-8. Replace original audio track and export final MP4
+6. Generate selected theory voiceover on demand (`/api/job/:jobId/generate-segment`)
 
 ## Docker (VPS / Railway-compatible image)
 

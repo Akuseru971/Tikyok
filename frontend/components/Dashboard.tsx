@@ -10,6 +10,14 @@ type Theory = {
   start_time: number;
   end_time: number;
   description: string;
+  rewritten_text?: string;
+  original_text?: string;
+};
+
+type GeneratedSegment = {
+  theory_number: number;
+  title: string;
+  downloadUrl: string;
 };
 
 type JobState = {
@@ -19,7 +27,7 @@ type JobState = {
   message: string;
   theories: Theory[];
   theoryCount?: number;
-  downloadUrl?: string;
+  generatedSegments?: GeneratedSegment[];
   error?: { code: string; message: string };
 };
 
@@ -35,6 +43,7 @@ export default function Dashboard() {
   const [job, setJob] = useState<JobState | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [generatingTheoryNumbers, setGeneratingTheoryNumbers] = useState<number[]>([]);
 
   useEffect(() => {
     if (!jobId) return;
@@ -49,7 +58,7 @@ export default function Dashboard() {
       }
 
       setJob(data);
-      if (data.status === 'completed' || data.status === 'failed') {
+      if (data.status === 'ready' || data.status === 'failed') {
         clearInterval(interval);
       }
     }, 2000);
@@ -63,6 +72,7 @@ export default function Dashboard() {
     setSubmitting(true);
     setError(null);
     setJob(null);
+    setGeneratingTheoryNumbers([]);
 
     try {
       if (!videoFile) {
@@ -94,11 +104,48 @@ export default function Dashboard() {
     }
   }
 
+  const generatedSegmentUrls = useMemo(() => {
+    const entries = (job?.generatedSegments || []).map((segment) => {
+      const url = API_BASE ? `${API_BASE}${segment.downloadUrl}` : segment.downloadUrl;
+      return [Number(segment.theory_number), url] as const;
+    });
+    return Object.fromEntries(entries) as Record<number, string>;
+  }, [job?.generatedSegments]);
+
+  async function generateSegmentAudio(theoryNumber: number) {
+    if (!jobId) return;
+
+    setGeneratingTheoryNumbers((current) => (current.includes(theoryNumber) ? current : [...current, theoryNumber]));
+    setError(null);
+
+    try {
+      const response = await fetch(`${API_BASE}/api/job/${jobId}/generate-segment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ theoryNumber })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data?.error?.message || 'Unable to generate segment audio');
+        return;
+      }
+
+      if (data?.job) {
+        setJob(data.job);
+      }
+    } catch {
+      setError('Network error while generating segment audio');
+    } finally {
+      setGeneratingTheoryNumbers((current) => current.filter((value) => value !== theoryNumber));
+    }
+  }
+
   return (
     <main className="mx-auto min-h-screen w-full max-w-5xl px-6 py-12">
       <section className="rounded-2xl border border-white/15 bg-panel p-6 shadow-2xl backdrop-blur-soft">
         <h1 className="text-2xl font-semibold">Private MP4 Voiceover Studio</h1>
-        <p className="mt-2 text-sm text-muted">Upload an MP4 and generate a faithful ElevenLabs voice-replaced MP4.</p>
+        <p className="mt-2 text-sm text-muted">Upload an MP4, detect theories, then generate only the segment audios you need.</p>
 
         <div className="mt-6 grid gap-3 md:grid-cols-[1fr_auto]">
           <input
@@ -131,20 +178,14 @@ export default function Dashboard() {
           <p className="mt-1 text-sm font-medium">{job?.message || 'Waiting for input...'}</p>
           {job?.error ? <p className="mt-2 text-sm text-red-300">{job.error.code}: {job.error.message}</p> : null}
           <p className="mt-2 text-xs text-muted">Detected theory count: {job?.theoryCount ?? job?.theories?.length ?? 0}</p>
-
-          {job?.downloadUrl && job.status === 'completed' ? (
-            <a
-              href={API_BASE ? `${API_BASE}${job.downloadUrl}` : job.downloadUrl}
-              className="mt-4 inline-flex rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-black"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Download final MP4
-            </a>
-          ) : null}
         </div>
 
-        <SegmentList segments={job?.theories || []} />
+        <SegmentList
+          segments={job?.theories || []}
+          onGenerateSegment={generateSegmentAudio}
+          generatingTheoryNumbers={generatingTheoryNumbers}
+          generatedSegmentUrls={generatedSegmentUrls}
+        />
       </section>
     </main>
   );

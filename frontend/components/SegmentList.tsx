@@ -8,6 +8,9 @@ type Segment = {
 
 type SegmentListProps = {
   segments: Segment[];
+  onGenerateSegment: (theoryNumber: number) => void;
+  generatingTheoryNumbers: number[];
+  generatedSegmentUrls: Record<number, string>;
 };
 
 function formatDuration(seconds: number) {
@@ -19,7 +22,7 @@ function formatDuration(seconds: number) {
   return `${minutes}:${remaining}`;
 }
 
-export default function SegmentList({ segments }: SegmentListProps) {
+export default function SegmentList({ segments, onGenerateSegment, generatingTheoryNumbers, generatedSegmentUrls }: SegmentListProps) {
   return (
     <div className="rounded-xl border border-white/10 bg-panel p-4 backdrop-blur-soft">
       <div className="mb-3 flex items-center justify-between">
@@ -39,6 +42,28 @@ export default function SegmentList({ segments }: SegmentListProps) {
               </div>
               <p className="text-xs text-muted">{formatDuration(segment.start_time)} → {formatDuration(segment.end_time)}</p>
               <p className="mt-1 text-sm text-text/90">{segment.description}</p>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onGenerateSegment(segment.theory_number)}
+                  disabled={generatingTheoryNumbers.includes(segment.theory_number)}
+                  className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {generatingTheoryNumbers.includes(segment.theory_number) ? 'Generating...' : 'Generate segment audio'}
+                </button>
+
+                {generatedSegmentUrls[segment.theory_number] ? (
+                  <a
+                    href={generatedSegmentUrls[segment.theory_number]}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-md border border-white/20 px-3 py-1 text-xs"
+                  >
+                    Download segment MP3
+                  </a>
+                ) : null}
+              </div>
             </article>
           ))
         )}
