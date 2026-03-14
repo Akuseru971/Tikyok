@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "concurrently \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\"",
     "build": "npm --prefix frontend run build",
-    "start": "concurrently \"npm --prefix backend run start\" \"npm --prefix frontend run start\""
+    "start": "concurrently \"sh -c 'BACKEND_PORT=${BACKEND_PORT:-4000} npm --prefix backend run start'\" \"sh -c 'BACKEND_URL=${BACKEND_URL:-http://127.0.0.1:${BACKEND_PORT:-4000}} npm --prefix frontend run start'\""
   },
   "devDependencies": {
     "concurrently": "^9.0.1"
